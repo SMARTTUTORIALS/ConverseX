@@ -1,6 +1,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const user = require('./models/User');
+const User = require('./models/User');
+const Message = require('./models/Message');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
@@ -49,7 +50,7 @@ app.post('/register', async (req, res) => {
 
     try {
         const hashedPass = bcrypt.hashSync(password, bcryptSalt);
-        const createdUser = await user.create({
+        const createdUser = await User.create({
             username: username,
             password: hashedPass
         });
@@ -72,7 +73,7 @@ app.post('/register', async (req, res) => {
 // Endpoint for logging in a user.
 app.post('/login', async (req, res) => {
     const { username, password } = req.body;
-    const foundUser = await user.findOne({ username });
+    const foundUser = await User.findOne({ username });
     if (foundUser) {
         const passOk = bcrypt.compareSync(password, foundUser.password);
         if (passOk) {
@@ -142,6 +143,7 @@ webSocketServer.on('connection', (connection, req) => {
         }
     }
 
+
     //extract the number of client connected to server and return the number of online users
     [...webSocketServer.clients].forEach(client => {
         client.send(JSON.stringify({
@@ -149,4 +151,34 @@ webSocketServer.on('connection', (connection, req) => {
                 [...webSocketServer.clients].map(c => ({ userId: c.userId, username: c.username }))
         }));
     });
+
+
+    //event when some user sends a message
+    connection.on('message',async (messageData) => {
+        messageData = JSON.parse(messageData.toString());
+        const {recipient, message} = messageData;
+        
+        if (recipient && message) {
+            //Create a record in the database
+            const messageDoc = await Message.create({
+                sender:connection.userId,
+                recipient,
+                message,
+            });
+
+            [...webSocketServer.clients]
+                .filter(c => c.userId === recipient)
+                .forEach(client => {
+                    //send message to each client connection with the recipirent ID
+                    client.send(JSON.stringify(
+                        {
+                            messageId:messageDoc._id,
+                            sender: connection.userId,
+                            text: message
+                        }
+                    ));
+                })
+
+        }
+    })
 });
